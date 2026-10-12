@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hark"
+version = "0.1.0"
+description = "Local-first push-to-talk dictation for Linux"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "sounddevice>=0.4.6",
+    "evdev>=1.6",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+stt = [
+    "onnx-asr[cpu,hub]",
+    "faster-whisper>=1.1",
+]
+# Essentials has Widgets/Gui/DBus; the full PySide6 adds ~300 MB of WebEngine etc.
+gui = ["PySide6-Essentials>=6.6"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+hark = "hark.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
