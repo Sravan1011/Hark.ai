@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from . import paths
+from .errors import HarkError
+from .stt.catalog import selectable_ids
 
 
-class ConfigError(Exception):
+class ConfigError(HarkError):
     pass
 
 
@@ -74,6 +76,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "hotkey.mode": ("hold", "toggle"),
     "insert.paste_chord": ("ctrl+v", "ctrl+shift+v", "shift+insert", "type"),
     "llm.style": ("plain", "email", "message", "notes"),
+    "stt.model": selectable_ids(),
 }
 
 

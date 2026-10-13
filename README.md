@@ -5,8 +5,8 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Phase 1 (installation + `hark doctor`) is done;
-> dictation itself lands in later phases.
+> Status: early development. Phases 1–2 (installation, `hark doctor`, speech models and
+> file transcription) are done; live dictation lands in later phases.
 
 ## Install
 
@@ -40,4 +40,23 @@ hark doctor [--json]            check this machine and print fixes
 hark config path|show|edit      settings file (~/.config/hark/config.json)
 hark config get llm.model
 hark config set llm.model qwen2.5:1.5b
+
+hark models list                list speech models (* = active)
+hark models download parakeet-v3 [--use]
+hark models use whisper-small   set the active model
+hark models rm whisper-small    delete a downloaded model
+hark transcribe audio.wav       transcribe a file (wav/mp3/ogg/m4a…) with the active model
+hark transcribe audio.wav --model whisper-base.en --json
 ```
+
+## Speech models
+
+Models are downloaded on request into `~/.local/share/hark/models` and run fully offline.
+
+| ID | Size | Languages | Notes |
+|---|---|---|---|
+| `parakeet-v3` (default) | 670 MB | 25 European languages | fast on CPU |
+| `parakeet-v2` | 661 MB | English | best English accuracy |
+| `whisper-base.en` | 148 MB | English | smallest |
+| `whisper-small` | 486 MB | 99 languages | multilingual |
+| `whisper-large-v3-turbo` | 1.6 GB | 99 languages | most accurate; slow without a GPU |

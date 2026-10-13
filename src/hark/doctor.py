@@ -159,6 +159,16 @@ def check_ollama(cfg: config_mod.Config) -> Check:
                  f"(have: {', '.join(models) or 'none'})", f"ollama pull {wanted}")
 
 
+def check_speech_model(cfg: config_mod.Config) -> Check:
+    from .stt import catalog
+
+    model_id = cfg.stt.model
+    if catalog.is_downloaded(model_id):
+        return Check("Speech model", OK, f"{model_id} (downloaded)")
+    return Check("Speech model", FAIL, f"{model_id} is selected but not downloaded",
+                 f"hark models download {model_id}")
+
+
 def check_disk_space() -> Check:
     target = paths.models_dir()
     while not target.exists():
@@ -204,6 +214,7 @@ def run_checks() -> list[Check]:
     checks.append(portaudio)
     if has_portaudio:
         checks.append(check_microphone())
+    checks.append(check_speech_model(cfg))
     checks.append(check_ollama(cfg))
     checks.append(check_disk_space())
     checks.append(check_tray())
