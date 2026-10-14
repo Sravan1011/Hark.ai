@@ -1,0 +1,13 @@
+Hark
+Copyright 2026 the Hark contributors
+
+Portions of Hark's text processing (voice commands, filler and stutter cleanup, and the
+validation rules for LLM cleanup) are adapted from OpenDictate
+(https://github.com/SiddhantSwan12/openDictate), licensed under the Apache License 2.0,
+which is itself ported from BetterWispr (https://github.com/opennookorg/betterwispr),
+licensed under the Apache License 2.0.
+
+Speech models are downloaded separately and keep their own licenses:
+- NVIDIA Parakeet TDT 0.6B v2/v3 (ONNX exports by istupakov): CC-BY-4.0
+- OpenAI Whisper (CTranslate2 conversions by Systran and Mobius Labs): MIT
+- Silero VAD: MIT

@@ -43,7 +43,10 @@ class LLMConfig:
     url: str = "http://localhost:11434"
     model: str = "qwen2.5:3b"
     style: str = "plain"
-    timeout_s: float = 8.0
+    # Per-request timeout is timeout_s + 0.1 s per word; on timeout the rule output is used.
+    timeout_s: float = 10.0
+    # How long Ollama keeps the model in RAM after the last request.
+    keep_alive_min: int = 30
 
 
 @dataclass
@@ -67,6 +70,7 @@ class Config:
     insert: InsertConfig = field(default_factory=InsertConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     voice_commands: bool = True
+    remove_fillers: bool = True
     save_history: bool = True
     # Each entry: {"from": "hark ai", "to": "Hark.ai"}
     vocabulary: list[dict[str, str]] = field(default_factory=list)

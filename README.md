@@ -5,8 +5,8 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Phases 1–2 (installation, `hark doctor`, speech models and
-> file transcription) are done; live dictation lands in later phases.
+> Status: early development. Phases 1–3 (installation, `hark doctor`, speech models, file
+> transcription and text cleanup) are done; live dictation lands in later phases.
 
 ## Install
 
@@ -47,7 +47,31 @@ hark models use whisper-small   set the active model
 hark models rm whisper-small    delete a downloaded model
 hark transcribe audio.wav       transcribe a file (wav/mp3/ogg/m4a…) with the active model
 hark transcribe audio.wav --model whisper-base.en --json
+hark transcribe audio.wav --no-llm | --raw
+
+hark clean "um so I I think comma we should go"   run the cleanup pipeline on text
+hark vocab add "hark ai" "Hark.ai"                 replacement
+hark vocab add Kubernetes                         spelling hint
+hark vocab list | rm <phrase>
+hark llm use qwen2.5:3b | on | off | status | list
+hark llm style plain|email|message|notes
 ```
+
+## Text cleanup
+
+Every transcript goes through fast, offline rules:
+
+- **Fillers and stutters:** "um", "uh", "I I think" and set-off "you know" are removed.
+- **Voice commands:** "comma", "question mark", "full stop", "new line", "new paragraph",
+  "add a colon", "scratch that", "sorry, remove that", "at the rate KV" → `@KV`.
+  Everyday phrases are left alone ("the Oxford comma", "please remove that file").
+- **Vocabulary:** your replacements and spellings.
+
+Optionally a local **Ollama** model then fixes grammar and self-corrections
+("Tuesday, no wait, Wednesday" → "Wednesday"). Its reply is checked before it's used:
+a reply that adds or drops too much, answers a question, or introduces new words is
+discarded and the rule-based text is kept. Small models on CPU take a few seconds and
+occasionally drop a word, so this is off by default; `hark llm use qwen2.5:3b` turns it on.
 
 ## Speech models
 
