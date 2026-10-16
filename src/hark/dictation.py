@@ -41,10 +41,11 @@ class Result:
 
 class Dictation:
     def __init__(self, cfg: Config, *, log: Callable[[str], None],
-                 on_result: Callable[[Result], None] | None = None):
+                 on_result: Callable[[Result], None] | None = None, log_text: bool = True):
         self.cfg = cfg
         self.log = log
         self.on_result = on_result
+        self.log_text = log_text  # off for the daemon's log file: it would hold dictations
         self.combo = parse_combo(cfg.hotkey.combo)
         self.recorder = audio.Recorder(max_seconds=MAX_SECONDS, on_limit=self._on_limit)
         self.injector = Injector(cfg.insert.paste_chord, cfg.insert.restore_clipboard)
@@ -53,14 +54,19 @@ class Dictation:
         self.engine: Engine | None = None
         self._jobs: queue.Queue[np.ndarray | None] = queue.Queue()
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
+        self._busy = 0
         self._worker = threading.Thread(target=self._work, name="hark-worker", daemon=True)
 
     # -- lifecycle -------------------------------------------------------------------
 
     def load(self) -> float:
-        """Load the speech model (seconds taken) and warm up the LLM in the background."""
+        """Load the speech model (seconds taken) and warm up the LLM in the background.
+        Safe to call from several threads: a dictation arriving mid-load waits for it."""
         start = time.perf_counter()
-        self.engine = load_engine(self.cfg.stt.model)
+        with self._load_lock:
+            if self.engine is None or self.engine.model_id != self.cfg.stt.model:
+                self.engine = load_engine(self.cfg.stt.model)
         if self.cfg.llm.enabled:
             threading.Thread(target=self._warm_llm, daemon=True).start()
         return time.perf_counter() - start
@@ -74,10 +80,40 @@ class Dictation:
             self.log(f"LLM cleanup unavailable, using rules only: {e}")
 
     def start(self) -> None:
+        """Start processing; raises HotkeyError if the keyboard can't be read (commands
+        such as `hark toggle` still work then)."""
+        self._worker.start()
         if self.listener:
             HotkeyListener.check_access()
             self.listener.start()
-        self._worker.start()
+
+    def reconfigure(self, cfg: Config) -> list[str]:
+        """Apply new settings without restarting; returns a description of what changed."""
+        combo = parse_combo(cfg.hotkey.combo)  # validate before changing anything
+        old, self.cfg = self.cfg, cfg
+        changes = []
+        self.injector.chord = cfg.insert.paste_chord
+        self.injector.restore_clipboard = cfg.insert.restore_clipboard
+        if (cfg.hotkey.combo, cfg.hotkey.evdev_enabled) != (old.hotkey.combo,
+                                                           old.hotkey.evdev_enabled):
+            if self.listener:
+                self.listener.stop()
+                self.listener = None
+            self.combo = combo
+            if cfg.hotkey.evdev_enabled:
+                listener = HotkeyListener(combo, self.handle_hotkey)
+                HotkeyListener.check_access()
+                listener.start()
+                self.listener = listener
+            changes.append("hotkey")
+        if cfg.stt.model != old.stt.model:
+            threading.Thread(target=self.load, daemon=True).start()
+            changes.append(f"model -> {cfg.stt.model}")
+        elif cfg.llm.enabled and (not old.llm.enabled or cfg.llm.model != old.llm.model):
+            threading.Thread(target=self._warm_llm, daemon=True).start()
+        if cfg.llm != old.llm:
+            changes.append("llm")
+        return changes
 
     def close(self) -> None:
         self.cancel(quiet=True)
@@ -91,6 +127,12 @@ class Dictation:
     @property
     def recording(self) -> bool:
         return self.recorder.recording
+
+    @property
+    def state(self) -> str:
+        if self.recording:
+            return "recording"
+        return "transcribing" if self._busy else "idle"
 
     def handle_hotkey(self, event: str) -> None:
         hold = self.cfg.hotkey.mode == "hold"
@@ -130,6 +172,8 @@ class Dictation:
             return
         if self.cfg.ui.sounds:
             audio.beep("stop")
+        with self._lock:
+            self._busy += 1
         self._jobs.put(recording)
 
     def cancel(self, quiet: bool = False) -> None:
@@ -156,13 +200,16 @@ class Dictation:
                 self.log(f"✘ {e}")
             except Exception as e:  # noqa: BLE001 - one bad dictation must not stop the loop
                 self.log(f"✘ unexpected error: {e!r}")
+            finally:
+                with self._lock:
+                    self._busy -= 1
 
     def _handle_recording(self, recording: np.ndarray) -> None:
         audio_s = recording.size / SAMPLE_RATE
         if audio.is_silent(recording):
             self.log("  (no speech detected)")
             return
-        if self.engine is None:
+        if self.engine is None or self.engine.model_id != self.cfg.stt.model:
             self.load()
         self.log(f"  Transcribing {audio_s:.1f}s…")
         start = time.perf_counter()
@@ -183,6 +230,7 @@ class Dictation:
                         stt_s=stt_s, llm_status=processed.llm_status, llm_s=processed.llm_s)
         llm = (f", llm {processed.llm_s:.1f}s {processed.llm_status}"
                if processed.llm_status != "off" else "")
-        self.log(f"✔ {delivered} · stt {stt_s:.1f}s{llm}\n  “{processed.text}”")
+        quoted = f"\n  “{processed.text}”" if self.log_text else ""
+        self.log(f"✔ {delivered} · stt {stt_s:.1f}s{llm}{quoted}")
         if self.on_result:
             self.on_result(result)

@@ -17,6 +17,19 @@ from .errors import HarkError
 from .stt import catalog
 
 
+def _save(cfg: config_mod.Config) -> None:
+    """Save settings and tell a running Hark to pick them up."""
+    from . import ipc
+
+    config_mod.save(cfg)
+    try:
+        ipc.request("reload", timeout=3)
+    except ipc.NotRunning:
+        pass
+    except HarkError as e:
+        print(f"Saved, but the running Hark couldn't apply it: {e}", file=sys.stderr)
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from . import doctor
 
@@ -51,7 +64,7 @@ def cmd_config(args: argparse.Namespace) -> int:
             print(value)
     elif action == "set":
         value = config_mod.set_value(cfg, args.key, args.value)
-        config_mod.save(cfg)
+        _save(cfg)
         print(f"{args.key} = {json.dumps(value)}")
     return 0
 
@@ -112,7 +125,7 @@ def cmd_models(args: argparse.Namespace) -> int:
 
 def _use_model(cfg: config_mod.Config, model_id: str) -> int:
     cfg.stt.model = model_id
-    config_mod.save(cfg)
+    _save(cfg)
     print(f"Active model: {model_id}")
     if not catalog.is_downloaded(model_id):
         print(f"It isn't downloaded yet. Run: hark models download {model_id}")
@@ -199,13 +212,13 @@ def cmd_llm(args: argparse.Namespace) -> int:
 
     if action == "style":
         cfg.llm.style = args.style
-        config_mod.save(cfg)
+        _save(cfg)
         print(f"Cleanup style: {args.style}")
         return 0
 
     if action == "off":
         cfg.llm.enabled = False
-        config_mod.save(cfg)
+        _save(cfg)
         print("LLM cleanup off (rule-based cleanup still applies).")
         return 0
 
@@ -214,7 +227,7 @@ def cmd_llm(args: argparse.Namespace) -> int:
     if not client.has_model(cfg.llm.model):
         raise HarkError(f"'{cfg.llm.model}' isn't pulled. Run: ollama pull {cfg.llm.model}")
     cfg.llm.enabled = True
-    config_mod.save(cfg)
+    _save(cfg)
     print(f"LLM cleanup on with {cfg.llm.model} (style: {cfg.llm.style}).")
     print("Loading the model into memory…", end=" ", flush=True)
     start = time.perf_counter()
@@ -245,7 +258,7 @@ def cmd_vocab(args: argparse.Namespace) -> int:
             raise HarkError(f"'{key}' isn't in the vocabulary")
         cfg.vocabulary = remaining
         print(f"Removed: {key}")
-    config_mod.save(cfg)
+    _save(cfg)
     return 0
 
 
@@ -254,7 +267,7 @@ def _stamp(message: str) -> None:
 
 
 def cmd_listen(args: argparse.Namespace) -> int:
-    from .dictation import Dictation
+    from .daemon import Daemon
     from .hotkey import pretty
 
     cfg = config_mod.load()
@@ -264,24 +277,117 @@ def cmd_listen(args: argparse.Namespace) -> int:
         cfg.hotkey.mode = args.mode
     if args.llm is not None:
         cfg.llm.enabled = args.llm
-    cfg.hotkey.evdev_enabled = True
 
-    dictation = Dictation(cfg, log=_stamp)
-    print(f"Loading {cfg.stt.model}…", end=" ", flush=True)
-    print(f"ready in {dictation.load():.1f}s")
-    dictation.start()
-    action = "Hold" if cfg.hotkey.mode == "hold" else "Press"
-    finish = "release to insert" if cfg.hotkey.mode == "hold" else "press again to insert"
-    print(f"\n  {action} {pretty(dictation.combo)}, speak, {finish}. Esc cancels.")
-    print(f"  Paste: {dictation.injector.method} ({cfg.insert.paste_chord}) · "
-          f"LLM cleanup: {cfg.llm.model if cfg.llm.enabled else 'off'}")
-    if dictation.injector.uinput_error:
-        print(f"  Note: virtual keyboard unavailable ({dictation.injector.uinput_error})")
-    print("  Ctrl+C here to quit.\n")
+    def ready(daemon, load_s: float) -> None:
+        d = daemon.dictation
+        print(f"Loaded {cfg.stt.model} in {load_s:.1f}s.\n")
+        if d.listener:
+            action = "Hold" if cfg.hotkey.mode == "hold" else "Press"
+            finish = "release to insert" if cfg.hotkey.mode == "hold" else "press again"
+            print(f"  {action} {pretty(d.combo)}, speak, {finish}. Esc cancels.")
+        else:
+            print(f"  Hotkey unavailable ({daemon.hotkey_error}).")
+        print("  Or run `hark toggle` (e.g. from a desktop shortcut).")
+        print(f"  Paste: {d.injector.method} ({cfg.insert.paste_chord}) · "
+              f"LLM cleanup: {cfg.llm.model if cfg.llm.enabled else 'off'}")
+        if d.injector.uinput_error:
+            print(f"  Note: virtual keyboard unavailable ({d.injector.uinput_error})")
+        print("  Ctrl+C here to quit.\n", flush=True)
+
+    print(f"Loading {cfg.stt.model}…", flush=True)
+    Daemon(cfg, log=_stamp, log_text=True).run(on_ready=ready)
+    return 0
+
+
+def cmd_daemon(args: argparse.Namespace) -> int:
+    from . import daemon
+
+    if args.detach:
+        pid = daemon.detach()
+        print(f"Hark is running in the background (pid {pid}).")
+        print(f"Logs: {paths.log_file()} · stop with: hark quit")
+        return 0
+    daemon.run_foreground(config_mod.load())
+    return 0
+
+
+_STATE_ICONS = {"idle": "○", "recording": "●", "transcribing": "…"}
+
+
+def _print_state(resp: dict) -> None:
+    print(f"{_STATE_ICONS.get(resp['state'], '?')} {resp['state']}")
+
+
+def cmd_control(args: argparse.Namespace) -> int:
+    from . import ipc
+
+    _print_state(ipc.request(args.command))
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    from . import ipc
+
     try:
-        threading.Event().wait()
-    finally:
-        dictation.close()
+        resp = ipc.request("status", timeout=2)
+    except ipc.NotRunning:
+        if args.json:
+            print(json.dumps({"state": "stopped"}))
+            return 3
+        raise
+    if args.json:
+        resp.pop("ok", None)
+        print(json.dumps(resp, ensure_ascii=False))
+        return 0
+    _print_state(resp)
+    minutes, seconds = divmod(resp["uptime_s"], 60)
+    print(f"  model:  {resp['model']}{'' if resp['model_loaded'] else ' (loading…)'}")
+    print(f"  hotkey: {resp['hotkey'] or 'none: ' + (resp['hotkey_error'] or 'disabled')}"
+          f" ({resp['mode']})")
+    print(f"  llm:    {resp['llm'] or 'off'}")
+    print(f"  pid {resp['pid']}, up {int(minutes)}m{int(seconds):02d}s")
+    if resp.get("last"):
+        print(f"  last:   {resp['last']['ts']} “{resp['last']['text']}”")
+    return 0
+
+
+def cmd_quit(args: argparse.Namespace) -> int:
+    from . import ipc
+
+    ipc.request("quit")
+    deadline = time.monotonic() + 5
+    while ipc.is_running():
+        if time.monotonic() > deadline:
+            raise HarkError("Hark is still shutting down; check: hark status")
+        time.sleep(0.1)
+    print("Hark stopped.")
+    return 0
+
+
+def cmd_reload(args: argparse.Namespace) -> int:
+    from . import ipc
+
+    ipc.request("reload")
+    print("Settings reloaded.")
+    return 0
+
+
+def cmd_history(args: argparse.Namespace) -> int:
+    from . import history
+
+    if args.action == "clear":
+        print(f"Deleted {history.clear()} entries.")
+        return 0
+    entries = history.read(args.n)
+    if args.json:
+        print(json.dumps(entries, ensure_ascii=False, indent=2))
+        return 0
+    if not entries:
+        print("No dictations yet." + ("" if config_mod.load().save_history
+                                      else " (History is off: hark config set save_history true)"))
+    for e in entries:
+        text = e.get("raw" if args.raw else "text", "")
+        print(f"{e.get('ts', '').replace('T', ' ')}  {text}")
     return 0
 
 
@@ -434,12 +540,39 @@ def build_parser() -> argparse.ArgumentParser:
     rm.add_argument("phrase")
     p.set_defaults(func=cmd_vocab)
 
-    p = sub.add_parser("listen", help="dictate now: hold the hotkey, speak, release (foreground)")
+    p = sub.add_parser("listen", help="run Hark in this terminal, showing what you dictate")
     p.add_argument("--key", help="override the shortcut, e.g. rightctrl or leftmeta+space")
     p.add_argument("--mode", choices=["hold", "toggle"], help="override hold/toggle mode")
     p.add_argument("--llm", action=argparse.BooleanOptionalAction, default=None,
                    help="force LLM cleanup on/off")
     p.set_defaults(func=cmd_listen)
+
+    p = sub.add_parser("daemon", help="run Hark in the background service mode")
+    p.add_argument("--detach", action="store_true", help="start in the background and return")
+    p.set_defaults(func=cmd_daemon)
+
+    for name, text in (("toggle", "start or stop dictating (bind this to a desktop shortcut)"),
+                       ("start", "start dictating"), ("stop", "stop dictating and insert the text"),
+                       ("cancel", "discard the current recording")):
+        p = sub.add_parser(name, help=text)
+        p.set_defaults(func=cmd_control)
+
+    p = sub.add_parser("status", help="show whether Hark is running and what it's doing")
+    p.add_argument("--json", action="store_true", help="for status bars (exit code 3 = stopped)")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("quit", help="stop the background service")
+    p.set_defaults(func=cmd_quit)
+
+    p = sub.add_parser("reload", help="make the running Hark re-read its settings")
+    p.set_defaults(func=cmd_reload)
+
+    p = sub.add_parser("history", help="show recent dictations")
+    p.add_argument("action", nargs="?", choices=["clear"], help="delete the history")
+    p.add_argument("-n", type=int, default=20, help="how many (default 20)")
+    p.add_argument("--raw", action="store_true", help="show text before cleanup")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_history)
 
     p = sub.add_parser("debug-hotkey", help="show key presses and shortcut events")
     p.add_argument("--key", help="shortcut to test (default: hotkey.combo)")

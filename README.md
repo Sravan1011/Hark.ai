@@ -5,8 +5,8 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Live dictation works from a terminal (`hark listen`); the
-> background service, desktop integration and UI come next.
+> Status: early development. Dictation works, in a terminal or as a background service;
+> desktop integration (autostart, shortcut setup) and the UI come next.
 
 ## Install
 
@@ -51,6 +51,23 @@ hark config set insert.paste_chord ctrl+shift+v   for terminals
 ```
 
 Troubleshooting: `hark debug-mic --transcribe`, `hark debug-hotkey`, `hark debug-paste`.
+
+### In the background
+
+```
+hark daemon --detach     start in the background (logs: ~/.local/state/hark/hark.log)
+hark status              idle / recording / transcribing, model, hotkey, last dictation
+hark toggle              start/stop dictating — bind it to a desktop keyboard shortcut
+hark start | stop | cancel
+hark reload              re-read settings (done automatically by hark config/llm/vocab/models)
+hark quit                stop the background service
+hark history [-n 20] [--raw] | history clear
+```
+
+`hark toggle` works without the `input` group: bind it in your desktop's keyboard
+settings (e.g. GNOME Settings → Keyboard → Custom Shortcuts) and press it to start and
+again to stop. History is stored privately in `~/.local/share/hark/history.jsonl`;
+turn it off with `hark config set save_history false`.
 
 ## Commands so far
 

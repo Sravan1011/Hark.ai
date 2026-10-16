@@ -31,11 +31,21 @@ def cache_dir() -> Path:
     return _xdg("XDG_CACHE_HOME", ".cache") / APP
 
 
+def state_dir() -> Path:
+    return _xdg("XDG_STATE_HOME", ".local/state") / APP
+
+
 def runtime_dir() -> Path:
+    """Per-user directory for the control socket. $XDG_RUNTIME_DIR is already private;
+    the /tmp fallback is created owner-only."""
     value = os.environ.get("XDG_RUNTIME_DIR", "").strip()
     if value and os.path.isabs(value):
         return Path(value)
-    return Path(f"/tmp/{APP}-{os.getuid()}")
+    path = Path(f"/tmp/{APP}-{os.getuid()}")
+    path.mkdir(mode=0o700, exist_ok=True)
+    if path.stat().st_uid != os.getuid():
+        raise PermissionError(f"{path} belongs to another user")
+    return path
 
 
 def config_file() -> Path:
@@ -48,6 +58,10 @@ def models_dir() -> Path:
 
 def history_file() -> Path:
     return data_dir() / "history.jsonl"
+
+
+def log_file() -> Path:
+    return state_dir() / "hark.log"
 
 
 def socket_path() -> Path:

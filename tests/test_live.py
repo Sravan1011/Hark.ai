@@ -103,6 +103,8 @@ class FakeInjector:
 
 
 class FakeEngine:
+    model_id = c.Config().stt.model
+
     def transcribe(self, audio, *, language="auto", hints=()):
         return "um hello comma world"
 
