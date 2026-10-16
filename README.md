@@ -5,8 +5,8 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Phases 1–3 (installation, `hark doctor`, speech models, file
-> transcription and text cleanup) are done; live dictation lands in later phases.
+> Status: early development. Live dictation works from a terminal (`hark listen`); the
+> background service, desktop integration and UI come next.
 
 ## Install
 
@@ -32,6 +32,25 @@ PortAudio, wl-clipboard, xclip and xdotool yourself, then run
 - **`input` group** lets Hark see your hotkey being held and released on any desktop,
   including Wayland, where apps can't register global hotkeys themselves.
 - **`/dev/uinput`** lets Hark press Ctrl+V through a virtual keyboard to paste the text.
+
+## Dictate
+
+```bash
+.venv/bin/hark listen
+```
+
+Hold **Right Ctrl**, speak, release: the text is pasted wherever your cursor is.
+Esc cancels; pressing another key while holding Right Ctrl (e.g. Right Ctrl+C) is
+treated as a normal shortcut and cancels silently.
+
+```
+hark listen --mode toggle            press once to start, again to stop
+hark listen --key leftmeta+space     try another shortcut (names: hark debug-hotkey)
+hark config set hotkey.combo KEY_F9  change it permanently
+hark config set insert.paste_chord ctrl+shift+v   for terminals
+```
+
+Troubleshooting: `hark debug-mic --transcribe`, `hark debug-hotkey`, `hark debug-paste`.
 
 ## Commands so far
 

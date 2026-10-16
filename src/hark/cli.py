@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from dataclasses import asdict, is_dataclass
 
@@ -248,6 +249,115 @@ def cmd_vocab(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stamp(message: str) -> None:
+    print(f"{time.strftime('%H:%M:%S')} {message}", flush=True)
+
+
+def cmd_listen(args: argparse.Namespace) -> int:
+    from .dictation import Dictation
+    from .hotkey import pretty
+
+    cfg = config_mod.load()
+    if args.key:
+        cfg.hotkey.combo = args.key
+    if args.mode:
+        cfg.hotkey.mode = args.mode
+    if args.llm is not None:
+        cfg.llm.enabled = args.llm
+    cfg.hotkey.evdev_enabled = True
+
+    dictation = Dictation(cfg, log=_stamp)
+    print(f"Loading {cfg.stt.model}…", end=" ", flush=True)
+    print(f"ready in {dictation.load():.1f}s")
+    dictation.start()
+    action = "Hold" if cfg.hotkey.mode == "hold" else "Press"
+    finish = "release to insert" if cfg.hotkey.mode == "hold" else "press again to insert"
+    print(f"\n  {action} {pretty(dictation.combo)}, speak, {finish}. Esc cancels.")
+    print(f"  Paste: {dictation.injector.method} ({cfg.insert.paste_chord}) · "
+          f"LLM cleanup: {cfg.llm.model if cfg.llm.enabled else 'off'}")
+    if dictation.injector.uinput_error:
+        print(f"  Note: virtual keyboard unavailable ({dictation.injector.uinput_error})")
+    print("  Ctrl+C here to quit.\n")
+    try:
+        threading.Event().wait()
+    finally:
+        dictation.close()
+    return 0
+
+
+def cmd_debug_hotkey(args: argparse.Namespace) -> int:
+    from .hotkey import HotkeyListener, parse_combo, pretty
+
+    combo = parse_combo(args.key or config_mod.load().hotkey.combo)
+    print(f"Found {HotkeyListener.check_access()} readable input devices.")
+    print(f"Shortcut: {pretty(combo)}. Press keys to see their names "
+          f"(use them with: hark config set hotkey.combo NAME). Ctrl+C to quit.")
+    listener = HotkeyListener(combo, lambda event: _stamp(event), report_all_keys=True)
+    listener.start()
+    try:
+        threading.Event().wait()
+    finally:
+        listener.stop()
+    return 0
+
+
+def cmd_debug_mic(args: argparse.Namespace) -> int:
+    import numpy as np
+
+    from . import audio
+    from .stt import SAMPLE_RATE
+
+    level = [0.0]
+    recorder = audio.Recorder(on_level=lambda rms: level.__setitem__(0, rms))
+    print(f"Recording {args.seconds:g}s from the default microphone. Say something…")
+    recorder.start()
+    end = time.monotonic() + args.seconds
+    while time.monotonic() < end:
+        bars = min(40, int(level[0] * 400))
+        print(f"\r  level |{'█' * bars}{' ' * (40 - bars)}|", end="", flush=True)
+        time.sleep(0.05)
+    recording = recorder.stop()
+    peak = float(np.abs(recording).max()) if recording.size else 0.0
+    print(f"\n  {recording.size / SAMPLE_RATE:.1f}s recorded, peak {peak:.2f}")
+    if audio.is_silent(recording):
+        print("  ✘ Only silence was captured. Check Settings → Sound → Input (and the mute key).")
+        return 1
+    print("  ✔ The microphone works.")
+    if args.save:
+        import wave
+
+        with wave.open(args.save, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SAMPLE_RATE)
+            w.writeframes((np.clip(recording, -1, 1) * 32767).astype("<i2").tobytes())
+        print(f"  Saved {args.save}")
+    if args.transcribe:
+        from .pipeline import process
+        from .stt import load_engine
+
+        cfg = config_mod.load()
+        raw = load_engine(cfg.stt.model).transcribe(recording, language=cfg.stt.language)
+        print(f"  Heard: {process(raw, cfg).text}")
+    return 0
+
+
+def cmd_debug_paste(args: argparse.Namespace) -> int:
+    from .inject import Injector
+
+    cfg = config_mod.load()
+    injector = Injector(args.chord or cfg.insert.paste_chord, cfg.insert.restore_clipboard)
+    try:
+        print(f"Method: {injector.method}. Click into a text field…")
+        for remaining in range(args.delay, 0, -1):
+            print(f"  pasting in {remaining}…", flush=True)
+            time.sleep(1)
+        print(f"  {injector.insert(args.text)}")
+    finally:
+        injector.close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hark", description="Local-first push-to-talk dictation for Linux.")
@@ -323,6 +433,29 @@ def build_parser() -> argparse.ArgumentParser:
     rm = vsub.add_parser("rm", help="remove an entry")
     rm.add_argument("phrase")
     p.set_defaults(func=cmd_vocab)
+
+    p = sub.add_parser("listen", help="dictate now: hold the hotkey, speak, release (foreground)")
+    p.add_argument("--key", help="override the shortcut, e.g. rightctrl or leftmeta+space")
+    p.add_argument("--mode", choices=["hold", "toggle"], help="override hold/toggle mode")
+    p.add_argument("--llm", action=argparse.BooleanOptionalAction, default=None,
+                   help="force LLM cleanup on/off")
+    p.set_defaults(func=cmd_listen)
+
+    p = sub.add_parser("debug-hotkey", help="show key presses and shortcut events")
+    p.add_argument("--key", help="shortcut to test (default: hotkey.combo)")
+    p.set_defaults(func=cmd_debug_hotkey)
+
+    p = sub.add_parser("debug-mic", help="record a few seconds and show the input level")
+    p.add_argument("--seconds", type=float, default=4)
+    p.add_argument("--save", metavar="FILE.wav", help="also save the recording")
+    p.add_argument("--transcribe", action="store_true", help="also transcribe it")
+    p.set_defaults(func=cmd_debug_mic)
+
+    p = sub.add_parser("debug-paste", help="paste test text into the focused app after a delay")
+    p.add_argument("--text", default="Hello from Hark! ")
+    p.add_argument("--delay", type=int, default=3)
+    p.add_argument("--chord", choices=["ctrl+v", "ctrl+shift+v", "shift+insert", "type"])
+    p.set_defaults(func=cmd_debug_paste)
 
     return parser
 
