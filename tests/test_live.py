@@ -159,4 +159,4 @@ def test_short_tap_is_ignored(loop):
     d.recorder.elapsed = 0.1
     d.handle_hotkey("release")
     assert not d.injector.done.wait(0.2)
-    assert any("too short" in line for line in logs)
+    assert any("too short" in line.lower() for line in logs)

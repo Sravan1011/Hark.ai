@@ -299,6 +299,17 @@ def cmd_listen(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_app(args: argparse.Namespace) -> int:
+    from . import ipc
+
+    if ipc.is_running():  # bring the existing window to the front
+        ipc.request("show")
+        return 0
+    from .ui.app import run
+
+    return run(hidden=args.hidden)
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     from . import daemon
 
@@ -546,6 +557,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--llm", action=argparse.BooleanOptionalAction, default=None,
                    help="force LLM cleanup on/off")
     p.set_defaults(func=cmd_listen)
+
+    p = sub.add_parser("app", help="open the Hark app (dictation + dashboard)")
+    p.add_argument("--hidden", action="store_true",
+                   help="start without showing the window (used at login)")
+    p.set_defaults(func=cmd_app)
 
     p = sub.add_parser("daemon", help="run Hark in the background service mode")
     p.add_argument("--detach", action="store_true", help="start in the background and return")

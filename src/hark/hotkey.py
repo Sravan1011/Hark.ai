@@ -64,7 +64,9 @@ class HotkeyListener(threading.Thread):
     'interrupt' - another key was pressed while the combo was held (it's a shortcut
                   like Right Ctrl+C, not dictation)
     'escape'    - Esc was pressed
-    'key:NAME'  - any key press, only when report_all_keys is set (for debugging)
+    'key:NAME'  - any key press, only when report_all_keys is set (debugging, and
+                  recording a new shortcut); 'keyup:NAME' for the release
+    An empty combo never fires 'press'.
     """
 
     def __init__(self, combo: tuple[int, ...], on_event: Callable[[str], None], *,
@@ -140,6 +142,8 @@ class HotkeyListener(threading.Thread):
     def _handle(self, code: int, value: int) -> None:
         if value == 2:  # autorepeat
             return
+        if value == 0 and self.report_all_keys:
+            self.on_event(f"keyup:{key_name(code)}")
         if value == 1:
             if self.report_all_keys:
                 self.on_event(f"key:{key_name(code)}")
@@ -149,7 +153,8 @@ class HotkeyListener(threading.Thread):
                 self.on_event("interrupt")
         pressed = self._pressed | {code} if value == 1 else self._pressed - {code}
         self._set_pressed(pressed)
-        if not self._active and value == 1 and all(k in pressed for k in self.combo):
+        if (self.combo and not self._active and value == 1
+                and all(k in pressed for k in self.combo)):
             self._active = True
             self.on_event("press")
 

@@ -51,7 +51,8 @@ class OllamaClient:
                       json={"model": model, "keep_alive": keep_alive})
 
     def chat(self, model: str, system: str, user: str, *, timeout: float, keep_alive: str,
-             examples: list[tuple[str, str]] = (), max_tokens: int | None = None) -> str:
+             examples: list[tuple[str, str]] = (), max_tokens: int | None = None,
+             json_format: bool = False) -> str:
         messages = [{"role": "system", "content": system}]
         for example_in, example_out in examples:
             messages += [{"role": "user", "content": example_in},
@@ -68,5 +69,7 @@ class OllamaClient:
             "keep_alive": keep_alive,
             "options": options,
         }
+        if json_format:
+            body["format"] = "json"
         data = self._request("POST", "/api/chat", timeout=timeout, json=body)
         return data.get("message", {}).get("content", "")

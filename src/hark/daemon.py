@@ -19,7 +19,7 @@ from typing import Any
 from . import config as config_mod
 from . import history, ipc, paths
 from .config import Config
-from .dictation import Dictation, Result
+from .dictation import Dictation, EventCallback, Result
 from .errors import HarkError
 from .hotkey import HotkeyError, pretty
 
@@ -27,14 +27,26 @@ _LOG_MAX_BYTES = 1_000_000
 
 
 class Daemon:
-    def __init__(self, cfg: Config, *, log: Callable[[str], None], log_text: bool = False):
+    """Owns dictation and the control socket. Use run() to block until quit, or
+    start()/stop() when another event loop (the Qt app) owns the main thread."""
+
+    def __init__(self, cfg: Config, *, log: Callable[[str], None], log_text: bool = False,
+                 on_event: EventCallback | None = None,
+                 on_result: Callable[[Result, dict], None] | None = None,
+                 on_show: Callable[[], None] | None = None):
         self.cfg = cfg
         self.log = log
         self.started = time.time()
         self.last: dict[str, Any] | None = None
         self.hotkey_error = ""
-        self.dictation = Dictation(cfg, log=log, on_result=self._on_result, log_text=log_text)
+        self.model_error = ""
+        self.on_result = on_result
+        self.on_show = on_show
+        self.dictation = Dictation(cfg, log=log, on_result=self._on_result, log_text=log_text,
+                                   on_event=on_event)
         self._shutdown = threading.Event()
+        self._server: ipc.Server | None = None
+        self._loader: threading.Thread | None = None
 
     # -- commands from `hark <cmd>` ----------------------------------------------------
 
@@ -48,7 +60,8 @@ class Daemon:
             "ping": lambda: None,
             "status": lambda: None,
             "reload": self.reload,
-            "quit": self._shutdown.set,
+            "quit": self.request_quit,
+            "show": self._show,
         }
         if cmd not in actions:
             return {"ok": False, "error": f"unknown command: {cmd}"}
@@ -67,8 +80,23 @@ class Daemon:
             "hotkey_error": self.hotkey_error,
             "mode": self.cfg.hotkey.mode,
             "llm": self.cfg.llm.model if self.cfg.llm.enabled else None,
+            "model_error": self.model_error,
+            "ui": self.on_show is not None,
             "last": self.last,
         }
+
+    def _show(self) -> None:
+        if self.on_show is None:
+            raise HarkError("Hark is running without its window (hark daemon). "
+                            "Run `hark quit`, then `hark app`.")
+        self.on_show()
+
+    def request_quit(self) -> None:
+        self._shutdown.set()
+
+    @property
+    def quit_requested(self) -> bool:
+        return self._shutdown.is_set()
 
     def reload(self) -> None:
         cfg = config_mod.load()
@@ -84,10 +112,13 @@ class Daemon:
     def _on_result(self, result: Result) -> None:
         self.last = {"text": result.text, "delivered": result.delivered,
                      "ts": time.strftime("%H:%M:%S")}
+        entry = {"text": result.text, "raw": result.raw, "model": self.cfg.stt.model,
+                 "audio_s": round(result.audio_s, 2), "stt_s": round(result.stt_s, 2),
+                 "llm": result.llm_status, "delivered": result.delivered}
         if self.cfg.save_history:
-            history.append({"text": result.text, "raw": result.raw, "model": self.cfg.stt.model,
-                            "audio_s": round(result.audio_s, 2), "stt_s": round(result.stt_s, 2),
-                            "llm": result.llm_status, "delivered": result.delivered})
+            history.append(entry)
+        if self.on_result:
+            self.on_result(result, entry)
 
     # -- lifecycle -------------------------------------------------------------------
 
@@ -95,32 +126,58 @@ class Daemon:
         try:
             load_s = self.dictation.load()
         except HarkError as e:
+            self.model_error = str(e)
             self.log(f"✘ {e}")
             return
+        self.model_error = ""
         if on_ready and not self._shutdown.is_set():
             on_ready(self, load_s)
 
-    def run(self, on_ready: Callable[[Daemon, float], None] | None = None) -> None:
-        server = ipc.Server(self.handle)  # first, so a second daemon fails fast
-        server.start()
-        signal.signal(signal.SIGTERM, lambda *_: self._shutdown.set())
+    def start(self, on_ready: Callable[[Daemon, float], None] | None = None) -> None:
+        """Claim the socket, start the hotkey, and load the model in the background (so
+        `hark quit` works during the ~8 s load). Raises AlreadyRunning."""
+        self._server = ipc.Server(self.handle)  # first, so a second instance fails fast
+        self._server.start()
         try:
-            try:
-                self.dictation.start()
-            except HotkeyError as e:
-                self.dictation.listener = None
-                self.hotkey_error = str(e)
-                self.log(f"! Hotkey unavailable: {e}")
-            # Load in the background so `hark quit` and Ctrl+C work during the ~8 s load.
-            threading.Thread(target=self._load, args=(on_ready,), name="hark-load",
-                             daemon=True).start()
+            self.dictation.start()
+        except HotkeyError as e:
+            self.dictation.listener = None
+            self.hotkey_error = str(e)
+            self.log(f"! Hotkey unavailable: {e}")
+        self._loader = threading.Thread(target=self._load, args=(on_ready,), name="hark-load",
+                                        daemon=True)
+        self._loader.start()
+
+    @property
+    def loading(self) -> bool:
+        return self._loader is not None and self._loader.is_alive()
+
+    def exit_if_loading(self, code: int = 0) -> None:
+        """Call after stop(). If the model is still loading, Python's normal shutdown would
+        tear down the interpreter under onnxruntime mid-load, which aborts the process; skip
+        finalization instead (everything Hark owns is already closed)."""
+        if self.loading:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(code)
+
+    def stop(self) -> None:
+        if self._server:
+            self._server.close()
+            self._server = None
+        self.dictation.close()
+        self.log("Stopped.")
+
+    def run(self, on_ready: Callable[[Daemon, float], None] | None = None) -> None:
+        signal.signal(signal.SIGTERM, lambda *_: self._shutdown.set())
+        self.start(on_ready)
+        try:
             # A timed wait keeps the main thread responsive to Ctrl+C.
             while not self._shutdown.wait(0.5):
                 pass
         finally:
-            server.close()
-            self.dictation.close()
-            self.log("Stopped.")
+            self.stop()
+        self.exit_if_loading()
 
 
 def _timestamped(message: str) -> None:

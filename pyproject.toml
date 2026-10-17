@@ -21,7 +21,9 @@ stt = [
     "faster-whisper>=1.1",
 ]
 # Essentials has Widgets/Gui/DBus; the full PySide6 adds ~300 MB of WebEngine etc.
-gui = ["PySide6-Essentials>=6.6"]
+# 6.12.0 drops a reference to None on every void Qt call under Python 3.11, which
+# crashes the app within minutes ("none_dealloc"); tests/test_ui.py checks for it.
+gui = ["PySide6-Essentials>=6.6,<6.12"]
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.scripts]

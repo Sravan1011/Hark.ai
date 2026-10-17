@@ -82,7 +82,7 @@ def test_history_append_read_trim_clear(monkeypatch):
 
 
 class FakeDictation:
-    def __init__(self, cfg, *, log, on_result, log_text):
+    def __init__(self, cfg, *, log, on_result, log_text, on_event=None):
         self.cfg, self.on_result = cfg, on_result
         self.state, self.listener, self.engine, self.combo = "idle", None, None, (97,)
         self.calls = []

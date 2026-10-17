@@ -5,8 +5,10 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Dictation works, in a terminal or as a background service;
-> desktop integration (autostart, shortcut setup) and the UI come next.
+> Status: early development. Dictation, the desktop app and voice notes work; packaging
+> (.deb/AppImage) and first-run onboarding come next.
+
+![Hark home](docs/screenshots/home.png)
 
 ## Install
 
@@ -33,7 +35,32 @@ PortAudio, wl-clipboard, xclip and xdotool yourself, then run
   including Wayland, where apps can't register global hotkeys themselves.
 - **`/dev/uinput`** lets Hark press Ctrl+V through a virtual keyboard to paste the text.
 
-## Dictate
+## The app
+
+```bash
+.venv/bin/hark app
+```
+
+Opens the dashboard and starts dictation. Closing the window keeps Hark running in the
+background (quit from the tray, or `hark quit`); running `hark app` again reopens it.
+
+- **Home:** words this week, speaking speed, streak, and your recent dictations.
+- **History:** search, copy and delete past dictations (`Show original` = before cleanup).
+- **Notes:** dictate straight into Hark's own notepad; optional AI title & summary.
+- **Dictionary:** names and jargon Hark should spell your way.
+- **Style:** cleanup rules, AI cleanup with Ollama, and a box to try it out.
+- **Models:** download, switch and delete speech models.
+- **Settings:** shortcut (press the keys you want), hold vs. toggle, paste method, sounds,
+  the recording capsule, history, start at login, app-menu entry, and a system check.
+
+| Notes | Settings |
+|---|---|
+| ![Notes](docs/screenshots/notes.png) | ![Settings](docs/screenshots/settings.png) |
+
+While you dictate, a small capsule at the bottom of the screen shows a live waveform:
+![Capsule](docs/screenshots/capsule_recording.png)
+
+## Dictate from a terminal
 
 ```bash
 .venv/bin/hark listen

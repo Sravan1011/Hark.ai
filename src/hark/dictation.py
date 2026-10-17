@@ -27,6 +27,13 @@ from .text import vocabulary
 MIN_SECONDS = 0.3  # shorter presses are accidental taps
 MAX_SECONDS = 120
 
+# on_event(kind, data) kinds, for the UI (called from background threads):
+#   "state"  {"state": "idle" | "recording" | "transcribing"}
+#   "level"  {"rms": float}            ~20 times a second while recording
+#   "notice" {"message": str}          e.g. no speech detected, cancelled
+#   "error"  {"message": str}
+EventCallback = Callable[[str, dict], None]
+
 
 @dataclass
 class Result:
@@ -41,18 +48,25 @@ class Result:
 
 class Dictation:
     def __init__(self, cfg: Config, *, log: Callable[[str], None],
-                 on_result: Callable[[Result], None] | None = None, log_text: bool = True):
+                 on_result: Callable[[Result], None] | None = None, log_text: bool = True,
+                 on_event: EventCallback | None = None):
         self.cfg = cfg
         self.log = log
         self.on_result = on_result
+        self.on_event = on_event
         self.log_text = log_text  # off for the daemon's log file: it would hold dictations
         self.combo = parse_combo(cfg.hotkey.combo)
-        self.recorder = audio.Recorder(max_seconds=MAX_SECONDS, on_limit=self._on_limit)
+        self.recorder = audio.Recorder(max_seconds=MAX_SECONDS, on_limit=self._on_limit,
+                                       on_level=lambda rms: self._emit("level", rms=rms))
         self.injector = Injector(cfg.insert.paste_chord, cfg.insert.restore_clipboard)
         self.listener = (HotkeyListener(self.combo, self.handle_hotkey)
                          if cfg.hotkey.evdev_enabled else None)
         self.engine: Engine | None = None
-        self._jobs: queue.Queue[np.ndarray | None] = queue.Queue()
+        self.paused = False  # hotkey ignored, e.g. while the user records a new shortcut
+        # Where the current recording's text goes instead of being pasted (e.g. a note).
+        self._capture: Callable[[str], None] | None = None
+        self._jobs: queue.Queue[tuple[np.ndarray, Callable[[str], None] | None] | None] = \
+            queue.Queue()
         self._lock = threading.Lock()
         self._load_lock = threading.Lock()
         self._busy = 0
@@ -122,6 +136,19 @@ class Dictation:
         self._jobs.put(None)
         self.injector.close()
 
+    # -- events ----------------------------------------------------------------------
+
+    def _emit(self, kind: str, **data) -> None:
+        if self.on_event:
+            self.on_event(kind, data)
+
+    def _report(self, kind: str, message: str) -> None:
+        self.log(f"✘ {message}" if kind == "error" else f"  {message}")
+        self._emit(kind, message=message)
+
+    def _state_changed(self) -> None:
+        self._emit("state", state=self.state)
+
     # -- hotkey / commands -----------------------------------------------------------
 
     @property
@@ -135,6 +162,8 @@ class Dictation:
         return "transcribing" if self._busy else "idle"
 
     def handle_hotkey(self, event: str) -> None:
+        if self.paused:
+            return
         hold = self.cfg.hotkey.mode == "hold"
         if event == "press":
             self.begin() if hold else self.toggle()
@@ -148,18 +177,21 @@ class Dictation:
     def toggle(self) -> None:
         self.finish() if self.recording else self.begin()
 
-    def begin(self) -> None:
+    def begin(self, capture: Callable[[str], None] | None = None) -> None:
+        """Start recording. With `capture`, the text is passed to it instead of pasted."""
         with self._lock:
             if self.recording:
                 return
             try:
                 self.recorder.start()
             except HarkError as e:
-                self.log(f"✘ {e}")
+                self._report("error", str(e))
                 return
+            self._capture = capture
         if self.cfg.ui.sounds:
             audio.beep("start")
         self.log("● Listening…")
+        self._state_changed()
 
     def finish(self) -> None:
         with self._lock:
@@ -167,24 +199,29 @@ class Dictation:
                 return
             elapsed = self.recorder.elapsed
             recording = self.recorder.stop()
+            capture, self._capture = self._capture, None
         if elapsed < MIN_SECONDS:
-            self.log("  (too short, ignored)")
+            self._report("notice", "Too short, ignored")
+            self._state_changed()
             return
         if self.cfg.ui.sounds:
             audio.beep("stop")
         with self._lock:
             self._busy += 1
-        self._jobs.put(recording)
+        self._jobs.put((recording, capture))
+        self._state_changed()
 
     def cancel(self, quiet: bool = False) -> None:
         with self._lock:
             if not self.recording:
                 return
             self.recorder.cancel()
+            self._capture = None
         if not quiet:
             if self.cfg.ui.sounds:
                 audio.beep("cancel")
-            self.log("  Cancelled.")
+            self._report("notice", "Cancelled")
+        self._state_changed()
 
     def _on_limit(self) -> None:
         self.log(f"  Reached the {MAX_SECONDS // 60}-minute limit; transcribing.")
@@ -193,21 +230,23 @@ class Dictation:
     # -- processing ------------------------------------------------------------------
 
     def _work(self) -> None:
-        while (recording := self._jobs.get()) is not None:
+        while (job := self._jobs.get()) is not None:
             try:
-                self._handle_recording(recording)
+                self._handle_recording(*job)
             except HarkError as e:
-                self.log(f"✘ {e}")
+                self._report("error", str(e))
             except Exception as e:  # noqa: BLE001 - one bad dictation must not stop the loop
-                self.log(f"✘ unexpected error: {e!r}")
+                self._report("error", f"unexpected error: {e!r}")
             finally:
                 with self._lock:
                     self._busy -= 1
+                self._state_changed()
 
-    def _handle_recording(self, recording: np.ndarray) -> None:
+    def _handle_recording(self, recording: np.ndarray,
+                          capture: Callable[[str], None] | None = None) -> None:
         audio_s = recording.size / SAMPLE_RATE
         if audio.is_silent(recording):
-            self.log("  (no speech detected)")
+            self._report("notice", "No speech detected")
             return
         if self.engine is None or self.engine.model_id != self.cfg.stt.model:
             self.load()
@@ -219,13 +258,17 @@ class Dictation:
         processed = process(raw, self.cfg)
         text = processed.text
         if not text:
-            self.log("  (nothing to insert)")
+            self._report("notice", "Nothing to insert")
             return
-        if self.cfg.insert.trailing_space and not text.endswith("\n"):
-            text += " "
-        if self.listener:
-            self.listener.wait_released()
-        delivered = self.injector.insert(text)
+        if capture:
+            capture(text)
+            delivered = "added to note"
+        else:
+            if self.cfg.insert.trailing_space and not text.endswith("\n"):
+                text += " "
+            if self.listener:
+                self.listener.wait_released()
+            delivered = self.injector.insert(text)
         result = Result(raw=raw, text=processed.text, delivered=delivered, audio_s=audio_s,
                         stt_s=stt_s, llm_status=processed.llm_status, llm_s=processed.llm_s)
         llm = (f", llm {processed.llm_s:.1f}s {processed.llm_status}"
