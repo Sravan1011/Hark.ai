@@ -45,22 +45,34 @@ def ctx(app, monkeypatch, tmp_path):
     return context.Context(fake, context.Bridge())
 
 
-def test_qt_calls_keep_none_alive(app):
+_LEAK_CHECK = """
+import sys
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
+app = QGuiApplication([])
+image = QImage(20, 20, QImage.Format.Format_ARGB32)
+painter = QPainter(image)
+before = sys.getrefcount(None)
+for _ in range(500):
+    painter.setBrush(QColor("#fff"))
+    painter.drawRoundedRect(QRectF(1, 1, 4, 10), 2, 2)
+print(before - sys.getrefcount(None))
+painter.end()
+"""
+
+
+def test_qt_calls_keep_none_alive():
     """PySide6 6.12.0 + Python 3.11 lost a reference to None on every void call, which
-    aborted the app after a few thousand paint calls."""
+    aborted the app after a few thousand paint calls. Measured in a fresh interpreter so
+    other tests' threads and garbage don't disturb the count."""
+    import subprocess
     import sys
 
-    from PySide6.QtCore import QRectF
-    from PySide6.QtGui import QColor, QImage, QPainter
-
-    image = QImage(20, 20, QImage.Format.Format_ARGB32)
-    painter = QPainter(image)
-    before = sys.getrefcount(None)
-    for _ in range(500):
-        painter.setBrush(QColor("#fff"))
-        painter.drawRoundedRect(QRectF(1, 1, 4, 10), 2, 2)
-    leaked = before - sys.getrefcount(None)
-    painter.end()
+    out = subprocess.run([sys.executable, "-c", _LEAK_CHECK], check=False, capture_output=True,
+                         text=True,
+                         timeout=60, env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+    assert out.returncode == 0, out.stderr[-500:]
+    leaked = int(out.stdout.strip().splitlines()[-1])
     assert leaked < 50, f"Qt calls dropped {leaked} references to None: use PySide6 < 6.12"
 
 

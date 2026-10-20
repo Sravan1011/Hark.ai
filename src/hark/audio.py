@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -110,6 +111,55 @@ class Recorder:
 
     def cancel(self) -> None:
         self._close()
+
+
+@dataclass
+class MicReport:
+    """Input quality of a recording, in dBFS (0 = loudest possible)."""
+
+    seconds: float
+    peak: float  # 0..1
+    clipped_pct: float  # samples at full scale: distortion
+    noise_db: float  # quietest 10% of 100 ms windows: background noise
+    speech_db: float  # loudest 5% of windows: your voice
+    snr_db: float
+
+    def problems(self) -> list[str]:
+        issues = []
+        if self.clipped_pct > 0.1:
+            issues.append(f"Clipping ({self.clipped_pct:.1f}% of samples at full scale): the "
+                          "input is far too loud and distorted. Lower the microphone volume / boost.")
+        if self.speech_db < -38:
+            issues.append(f"Too quiet (speech at {self.speech_db:.0f} dBFS): raise the input "
+                          "volume or move closer to the microphone.")
+        if self.noise_db > -35:
+            issues.append(f"Loud background noise ({self.noise_db:.0f} dBFS): often caused by "
+                          "too much mic boost; lower it, or use a headset.")
+        if self.snr_db < 15 and not issues:
+            issues.append(f"Speech is barely louder than the noise ({self.snr_db:.0f} dB).")
+        return issues
+
+    def short(self) -> str:
+        """One line for the capsule, or "" if the input sounds fine."""
+        if self.clipped_pct > 0.1:
+            return "Mic too loud: lower input volume"
+        if self.noise_db > -35:
+            return "Mic very noisy: lower input volume"
+        if self.speech_db < -38:
+            return "Mic too quiet: raise input volume"
+        return ""
+
+
+def analyze(audio: np.ndarray) -> MicReport:
+    window = SAMPLE_RATE // 10
+    frames = audio[: audio.size - audio.size % window].reshape(-1, window)
+    if frames.size == 0:
+        return MicReport(0, 0, 0, -120, -120, 0)
+    db = 20 * np.log10(np.sqrt((frames ** 2).mean(axis=1)) + 1e-9)
+    noise, speech = float(np.percentile(db, 10)), float(np.percentile(db, 95))
+    return MicReport(seconds=audio.size / SAMPLE_RATE, peak=float(np.abs(audio).max()),
+                     clipped_pct=float((np.abs(audio) >= 0.98).mean() * 100),
+                     noise_db=noise, speech_db=speech, snr_db=speech - noise)
 
 
 def is_silent(audio: np.ndarray, threshold: float = 0.004) -> bool:

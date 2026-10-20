@@ -426,7 +426,8 @@ def cmd_debug_mic(args: argparse.Namespace) -> int:
 
     level = [0.0]
     recorder = audio.Recorder(on_level=lambda rms: level.__setitem__(0, rms))
-    print(f"Recording {args.seconds:g}s from the default microphone. Say something…")
+    print(f"Recording {args.seconds:g}s from the default microphone. Speak normally, e.g.:")
+    print("  “The quick brown fox jumps over the lazy dog. I'm testing my microphone today.”")
     recorder.start()
     end = time.monotonic() + args.seconds
     while time.monotonic() < end:
@@ -434,12 +435,18 @@ def cmd_debug_mic(args: argparse.Namespace) -> int:
         print(f"\r  level |{'█' * bars}{' ' * (40 - bars)}|", end="", flush=True)
         time.sleep(0.05)
     recording = recorder.stop()
-    peak = float(np.abs(recording).max()) if recording.size else 0.0
-    print(f"\n  {recording.size / SAMPLE_RATE:.1f}s recorded, peak {peak:.2f}")
+    report = audio.analyze(recording)
+    print(f"\n\n  peak {report.peak:.2f} · clipped {report.clipped_pct:.2f}% · "
+          f"speech {report.speech_db:.0f} dBFS · noise {report.noise_db:.0f} dBFS · "
+          f"speech-to-noise {report.snr_db:.0f} dB")
+    problems = report.problems()
+    for problem in problems:
+        print(f"  ✘ {problem}")
     if audio.is_silent(recording):
         print("  ✘ Only silence was captured. Check Settings → Sound → Input (and the mute key).")
         return 1
-    print("  ✔ The microphone works.")
+    if not problems:
+        print("  ✔ The microphone signal looks good.")
     if args.save:
         import wave
 
@@ -449,14 +456,19 @@ def cmd_debug_mic(args: argparse.Namespace) -> int:
             w.setframerate(SAMPLE_RATE)
             w.writeframes((np.clip(recording, -1, 1) * 32767).astype("<i2").tobytes())
         print(f"  Saved {args.save}")
-    if args.transcribe:
-        from .pipeline import process
-        from .stt import load_engine
+    if args.transcribe or args.compare:
+        from .stt import catalog, load_engine
 
         cfg = config_mod.load()
-        raw = load_engine(cfg.stt.model).transcribe(recording, language=cfg.stt.language)
-        print(f"  Heard: {process(raw, cfg).text}")
-    return 0
+        models = ([m.id for m in catalog.selectable() if catalog.is_downloaded(m.id)]
+                  if args.compare else [cfg.stt.model])
+        print()
+        for model_id in models:
+            engine = load_engine(model_id)
+            start = time.perf_counter()
+            text = engine.transcribe(recording, language=cfg.stt.language)
+            print(f"  {model_id:24} {time.perf_counter() - start:4.1f}s  {text}")
+    return 1 if problems else 0
 
 
 def cmd_debug_paste(args: argparse.Namespace) -> int:
@@ -598,6 +610,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seconds", type=float, default=4)
     p.add_argument("--save", metavar="FILE.wav", help="also save the recording")
     p.add_argument("--transcribe", action="store_true", help="also transcribe it")
+    p.add_argument("--compare", action="store_true",
+                   help="transcribe with every downloaded model, to compare accuracy")
     p.set_defaults(func=cmd_debug_mic)
 
     p = sub.add_parser("debug-paste", help="paste test text into the focused app after a delay")

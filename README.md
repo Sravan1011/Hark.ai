@@ -79,6 +79,13 @@ hark config set insert.paste_chord ctrl+shift+v   for terminals
 
 Troubleshooting: `hark debug-mic --transcribe`, `hark debug-hotkey`, `hark debug-paste`.
 
+**Words come out wrong?** It's almost always the microphone signal, not the model. Run
+`hark debug-mic --compare`: it reports clipping, background noise and speech level, then
+transcribes the same recording with every downloaded model. Many laptops ship with the
+input volume at 100%, which can mean +60 dB of hardware gain: noise as loud as speech.
+Lowering GNOME Settings → Sound → Input → Volume to ~30% fixes that. Hark also warns in
+the capsule when a dictation sounds distorted or noisy.
+
 ### In the background
 
 ```

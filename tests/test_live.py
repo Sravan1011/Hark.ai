@@ -160,3 +160,19 @@ def test_short_tap_is_ignored(loop):
     d.handle_hotkey("release")
     assert not d.injector.done.wait(0.2)
     assert any("too short" in line.lower() for line in logs)
+
+
+def test_mic_analysis_flags_clipping_noise_and_quiet():
+    t = np.arange(SAMPLE_RATE * 2) / SAMPLE_RATE
+    speech = (0.3 * np.sin(2 * np.pi * 220 * t) * (t > 1)).astype(np.float32)
+    rng = np.random.default_rng(0)
+    clean = speech + rng.normal(0, 0.0005, speech.size).astype(np.float32)
+    report = audio.analyze(clean)
+    assert report.problems() == [] and report.short() == ""
+    assert report.snr_db > 40
+
+    clipped = np.clip(clean * 8, -1, 1)
+    assert "too loud" in audio.analyze(clipped).short()
+    noisy = speech + rng.normal(0, 0.05, speech.size).astype(np.float32)
+    assert "noisy" in audio.analyze(noisy).short()
+    assert "quiet" in audio.analyze(clean * 0.005).short()

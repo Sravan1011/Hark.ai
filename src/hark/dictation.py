@@ -63,6 +63,7 @@ class Dictation:
                          if cfg.hotkey.evdev_enabled else None)
         self.engine: Engine | None = None
         self.paused = False  # hotkey ignored, e.g. while the user records a new shortcut
+        self._mic_warned = False  # input-quality warning, shown once per session
         # Where the current recording's text goes instead of being pasted (e.g. a note).
         self._capture: Callable[[str], None] | None = None
         self._jobs: queue.Queue[tuple[np.ndarray, Callable[[str], None] | None] | None] = \
@@ -248,6 +249,11 @@ class Dictation:
         if audio.is_silent(recording):
             self._report("notice", "No speech detected")
             return
+        mic = audio.analyze(recording)
+        if mic.short() and not self._mic_warned:
+            # A distorted or noisy signal is the usual cause of "every word is wrong".
+            self._mic_warned = True
+            self._report("notice", f"{mic.short()} (check with: hark debug-mic)")
         if self.engine is None or self.engine.model_id != self.cfg.stt.model:
             self.load()
         self.log(f"  Transcribing {audio_s:.1f}s…")
