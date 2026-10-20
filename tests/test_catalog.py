@@ -75,3 +75,29 @@ def test_transcribe_without_model_gives_hint(tmp_path, capsys):
         w.writeframes(b"\0\0" * 16000)
     assert cli.main(["transcribe", str(wav), "--model", "whisper-small"]) == 1
     assert "hark models download whisper-small" in capsys.readouterr().err
+
+
+def test_load_audio_resamples_to_16k_mono(tmp_path):
+    import wave
+
+    import numpy as np
+
+    from hark.stt.audiofile import AudioFileError, load_audio
+
+    rate, seconds = 44_100, 1.5
+    t = np.arange(int(rate * seconds)) / rate
+    tone = (0.4 * np.sin(2 * np.pi * 440 * t) * 32767).astype("<i2")
+    path = tmp_path / "stereo.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(np.repeat(tone, 2).tobytes())  # interleaved L/R
+    audio = load_audio(str(path))
+    assert audio.dtype == np.float32
+    assert abs(audio.size - 16_000 * seconds) < 400
+    assert 0.3 < np.abs(audio).max() < 0.5
+
+    (tmp_path / "notes.txt").write_text("not audio")
+    with pytest.raises(AudioFileError):
+        load_audio(str(tmp_path / "notes.txt"))
