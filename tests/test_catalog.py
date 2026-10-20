@@ -96,7 +96,8 @@ def test_load_audio_resamples_to_16k_mono(tmp_path):
     audio = load_audio(str(path))
     assert audio.dtype == np.float32
     assert abs(audio.size - 16_000 * seconds) < 400
-    assert 0.3 < np.abs(audio).max() < 0.5
+    # FFmpeg downmixes stereo at -3 dB per channel: two identical 0.4 channels -> ~0.57.
+    assert 0.3 < np.abs(audio).max() < 0.6
 
     (tmp_path / "notes.txt").write_text("not audio")
     with pytest.raises(AudioFileError):
