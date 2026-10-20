@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hark — Voice dictation for Linux. Hold a key, speak, it types.</title>
+  <meta name="description" content="Free, open-source, on-device dictation for Linux. Hold a key, speak, and your words are typed into any app — on Wayland and X11. No cloud, no account.">
+  <meta name="theme-color" content="#0a0b0f">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Hark — Voice dictation for Linux">
+  <meta property="og:description" content="Hold a key, speak, and your words are typed into any app. On-device, works on Wayland and X11. Free and open source.">
+  <meta property="og:image" content="/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Hark — Voice dictation for Linux">
+  <meta name="twitter:description" content="Hold a key, speak, it types. On-device, Wayland and X11, free and open source.">
+  <meta name="twitter:image" content="/og.png">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="Hark home">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
+        Hark
+      </a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/Sravan1011/Hark.ai">
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="gh"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -------------------------------------------------------------------------- -->
+    <section class="hero">
+      <div class="glow" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="dot"></span> v0.1 beta · Free &amp; open source</p>
+          <h1>Speak. It types.<br><span class="grad">Anywhere on Linux.</span></h1>
+          <p class="lede">Hold a key, say what you mean, let go — your words appear in whatever app
+            you're using. Speech recognition runs on your computer, on Wayland and X11.
+            No cloud. No account.</p>
+
+          <div class="install-box" role="group" aria-label="Install command">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/Sravan1011/Hark.ai/main/install.sh | bash</code>
+            <button class="copy" type="button" data-copy="#install-cmd" aria-label="Copy install command">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+          <p class="install-meta">Paste into a terminal · Debian, Ubuntu, Fedora, Arch, openSUSE ·
+            <a href="/install.sh">read the script</a></p>
+        </div>
+
+        <!-- Live demo: what using Hark looks like -->
+        <div class="demo" aria-label="Animated demo: dictating into a text editor">
+          <div class="window">
+            <div class="titlebar"><span></span><span></span><span></span><em id="demo-app">Message</em></div>
+            <div class="doc">
+              <p class="said" id="demo-said" aria-live="off"></p>
+              <p class="typed" id="demo-typed"></p>
+            </div>
+          </div>
+          <div class="keycap-row">
+            <kbd id="demo-key">Right Ctrl</kbd>
+            <span id="demo-hint">Hold to talk</span>
+          </div>
+          <div class="capsule" id="demo-capsule" aria-hidden="true">
+            <span class="rec"></span>
+            <span class="bars">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </span>
+            <span class="timer" id="demo-timer">0:01</span>
+            <span class="status" id="demo-status"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screenshots ------------------------------------------------------------------- -->
+    <section class="showcase">
+      <div class="wrap">
+        <div class="tabs" role="tablist" aria-label="App screens">
+          <button role="tab" aria-selected="true" data-shot="home">Home</button>
+          <button role="tab" aria-selected="false" data-shot="history">History</button>
+          <button role="tab" aria-selected="false" data-shot="notes">Notes</button>
+          <button role="tab" aria-selected="false" data-shot="style">Style</button>
+          <button role="tab" aria-selected="false" data-shot="settings">Settings</button>
+        </div>
+        <figure class="frame">
+          <img id="shot" src="/screenshots/home.png" width="1100" height="760"
+               alt="Hark's Home screen: words this week, words per minute, day streak and recent dictations">
+        </figure>
+        <p class="caption">The Hark app: stats, history, voice notes, your dictionary, cleanup style,
+          models and settings. Closing it keeps dictation running in the background.</p>
+      </div>
+    </section>
+
+    <!-- Features ---------------------------------------------------------------------- -->
+    <section id="features" class="section">
+      <div class="wrap">
+        <h2>Everything you need to stop typing</h2>
+        <p class="section-lede">Built for Linux from the ground up — not a port with the hard parts
+          left out.</p>
+        <div class="features">
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <h3>Works in every app</h3>
+            <p>Browser, editor, Slack, email — and terminals with one setting. GNOME, KDE,
+              Hyprland, Sway, i3, on Wayland and X11.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+            <h3>Private by default</h3>
+            <p>Your voice never leaves your computer. No account, no telemetry. History stays in a
+              file only you can read.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+            <h3>Fast without a GPU</h3>
+            <p>NVIDIA Parakeet turns 5 seconds of speech into text in about 0.7 s on an ordinary
+              laptop CPU. Whisper models included too.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><path d="m15 15 2 2 4-4"/></svg></div>
+            <h3>Cleans up as you go</h3>
+            <p>“Um”, “uh” and “I I think” disappear. Say “comma”, “new line” or “scratch that”, and
+              it does what you mean.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg></div>
+            <h3>Your words, your spelling</h3>
+            <p>Teach it names and jargon once — “hark ai” becomes Hark.ai, every time.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></div>
+            <h3>Optional local AI</h3>
+            <p>Connect an Ollama model to fix grammar and self-corrections. Guardrails keep your
+              text if the model tries to rewrite or answer it.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M8.5 12.5h7M8.5 16.5h5"/></svg></div>
+            <h3>Voice notes</h3>
+            <p>Dictate straight into Hark's own notepad, then get a title and summary with one
+              click.</p>
+          </article>
+          <article>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div>
+            <h3>History &amp; stats</h3>
+            <p>Search everything you've said, copy it again, and watch your words-per-minute and
+              streak grow.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works ------------------------------------------------------------------ -->
+    <section id="how" class="section alt">
+      <div class="wrap">
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li>
+            <span class="num">1</span>
+            <h3>Install with one command</h3>
+            <p>It sets up audio, clipboard and keyboard access, installs Hark and downloads the
+              speech model. Log out and back in once.</p>
+          </li>
+          <li>
+            <span class="num">2</span>
+            <h3>Hold <kbd>Right Ctrl</kbd> and speak</h3>
+            <p>A small capsule shows you're being heard. Prefer tapping? Switch to press-to-start
+              in Settings, or use any key you like.</p>
+          </li>
+          <li>
+            <span class="num">3</span>
+            <h3>Let go — it types</h3>
+            <p>About a second later, cleaned-up text lands wherever your cursor is.</p>
+          </li>
+        </ol>
+
+        <div class="deep">
+          <div>
+            <h3>Why this is hard on Linux — and how Hark does it</h3>
+            <p>Wayland deliberately stops apps from watching keys or typing into other windows.
+              That's why the speech model is the easy part. Hark reads your keyboard directly
+              through the kernel (<code>evdev</code>), so holding and releasing a key works on
+              every compositor, and pastes through a virtual keyboard (<code>uinput</code>) that
+              your desktop treats like real hardware.</p>
+            <p class="muted">The trade-off: a one-time permission (the <code>input</code> group),
+              which the installer sets up and explains. Support for the newer desktop portals is on
+              the roadmap.</p>
+          </div>
+          <table class="commands" aria-label="Voice commands">
+            <thead><tr><th>Say</th><th>Get</th></tr></thead>
+            <tbody>
+              <tr><td>“comma”, “question mark”, “full stop”</td><td><code>,  ?  .</code></td></tr>
+              <tr><td>“new line”, “new paragraph”</td><td>line break</td></tr>
+              <tr><td>“add a colon”, “insert a dash”</td><td><code>:  –</code></td></tr>
+              <tr><td>“scratch that”, “sorry, remove that”</td><td>deletes the last sentence</td></tr>
+              <tr><td>“at the rate KV”</td><td><code>@KV</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install ------------------------------------------------------------------------ -->
+    <section id="install" class="section">
+      <div class="wrap narrow">
+        <h2>Install</h2>
+        <p class="section-lede">One command. Run it as your normal user — it asks for your password
+          only for the system parts.</p>
+        <div class="install-box big" role="group" aria-label="Install command">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="install-cmd-2">curl -fsSL https://raw.githubusercontent.com/Sravan1011/Hark.ai/main/install.sh | bash</code>
+          <button class="copy" type="button" data-copy="#install-cmd-2" aria-label="Copy install command">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <h3>What the installer does</h3>
+            <ul class="checks">
+              <li>Installs PortAudio and clipboard tools with your package manager</li>
+              <li>Adds you to the <code>input</code> group so Hark can see your shortcut</li>
+              <li>Allows the virtual keyboard used to paste (<code>/dev/uinput</code>)</li>
+              <li>Installs Hark in its own folder: <code>~/.local/share/hark</code></li>
+              <li>Adds <code>hark</code> to your terminal and Hark to your app menu</li>
+              <li>Downloads the default speech model (~670 MB, once)</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Requirements</h3>
+            <ul class="plain">
+              <li><strong>Linux</strong> with apt, dnf, pacman or zypper</li>
+              <li><strong>Python 3.10+</strong> (already on most distros)</li>
+              <li><strong>~1.5 GB</strong> disk for the app and one model</li>
+              <li>Any microphone. <strong>No GPU</strong> needed.</li>
+            </ul>
+            <h3 class="mt">Options</h3>
+            <pre class="opts"><code>… | bash -s -- --no-model    # skip the model download
+… | bash -s -- --no-system   # no sudo steps
+… | bash -s -- --uninstall   # remove Hark</code></pre>
+          </div>
+        </div>
+        <p class="muted center">Tested on Debian 12 with GNOME on Wayland. Other distributions and
+          desktops are supported by design — <a href="https://github.com/Sravan1011/Hark.ai/issues">tell us</a>
+          how it goes.</p>
+      </div>
+    </section>
+
+    <!-- Privacy ------------------------------------------------------------------------ -->
+    <section class="section alt">
+      <div class="wrap privacy">
+        <div>
+          <h2>What leaves your computer?</h2>
+          <p class="section-lede left">Nothing you say. Speech is recognized locally, cleaned up
+            locally, and pasted locally.</p>
+        </div>
+        <ul class="ledger">
+          <li><span class="yes">On your computer</span> Your voice, transcripts, history, notes,
+            dictionary and settings</li>
+          <li><span class="yes">On your computer</span> AI cleanup — Ollama runs locally too, if you
+            turn it on</li>
+          <li><span class="net">Network, once</span> Speech models download from Hugging Face when
+            you choose them</li>
+          <li><span class="no">Never</span> Accounts, analytics, telemetry or cloud transcription</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- FAQ ---------------------------------------------------------------------------- -->
+    <section id="faq" class="section">
+      <div class="wrap narrow">
+        <h2>Questions</h2>
+        <div class="faq">
+          <details>
+            <summary>Why does Hark need the <code>input</code> group?</summary>
+            <p>Wayland doesn't let apps register a global “hold this key” shortcut. Reading the
+              keyboard through the kernel is the only way that works on every desktop. Membership
+              in <code>input</code> lets programs running as you read keyboard events — the
+              installer asks before adding it. Don't want that? Bind <code>hark toggle</code> to a
+              shortcut in your desktop's settings instead (press to start, press to stop); it needs
+              no special permission.</p>
+          </details>
+          <details>
+            <summary>Does it work on Wayland? GNOME? KDE? Hyprland?</summary>
+            <p>Yes — that's the point. Hark works below the compositor (through the kernel's input
+              devices), so it's designed to behave the same on GNOME, KDE Plasma, Hyprland, Sway,
+              i3 and others, on Wayland or X11. It's been tested most on GNOME with Wayland; if
+              something's off on your desktop, please open an issue.</p>
+          </details>
+          <details>
+            <summary>Do I need a GPU?</summary>
+            <p>No. The default Parakeet model is fast on an ordinary laptop CPU. The largest Whisper
+              model is more accurate but slow without a GPU.</p>
+          </details>
+          <details>
+            <summary>Which languages does it understand?</summary>
+            <p>Parakeet v3 handles 25 European languages; Parakeet v2 is English-only and very
+              accurate. Whisper models cover 99 languages, including Hindi, Telugu, Tamil, Arabic,
+              Chinese and Japanese, with accuracy that varies by language. Voice commands are in
+              English.</p>
+          </details>
+          <details>
+            <summary>The words come out wrong. What can I do?</summary>
+            <p>It's almost always the microphone signal. Many laptops ship with the input volume at
+              maximum, which drowns your voice in noise. Run <code>hark debug-mic --compare</code>:
+              it reports clipping and noise and compares every downloaded model on the same
+              recording. Lowering Settings → Sound → Input to around 30% often fixes it.</p>
+          </details>
+          <details>
+            <summary>How do I uninstall it?</summary>
+            <p>Run the install command with <code>bash -s -- --uninstall</code>. Your models, history
+              and notes are kept unless you add <code>--purge</code>.</p>
+          </details>
+          <details>
+            <summary>Is it really free?</summary>
+            <p>Yes. Hark is open source under the Apache 2.0 license. There's no paid tier and nothing
+              to sign up for.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA ---------------------------------------------------------------------- -->
+    <section class="cta">
+      <div class="wrap center">
+        <h2>Give your hands a break.</h2>
+        <p class="section-lede">Install Hark in one command and dictate into anything.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#install">Install Hark</a>
+          <a class="btn btn-ghost" href="https://github.com/Sravan1011/Hark.ai">Star on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <p><strong>Hark</strong> · Apache-2.0 · Made for Linux</p>
+      <p class="muted">Inspired by <a href="https://github.com/opennookorg/betterwispr">BetterWispr</a>.
+        Text rules adapted from <a href="https://github.com/SiddhantSwan12/openDictate">OpenDictate</a>.
+        Speech models by NVIDIA (Parakeet) and OpenAI (Whisper).</p>
+    </div>
+  </footer>
+
+  <script src="/main.js" defer></script>
+</body>
+</html>

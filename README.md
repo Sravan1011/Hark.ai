@@ -5,29 +5,33 @@ from your desktop's shortcut settings), speak, and the text is typed into the fo
 app. Speech-to-text runs on-device (Parakeet / Whisper), with optional cleanup by a
 local Ollama model. Works on X11 and Wayland.
 
-> Status: early development. Dictation, the desktop app and voice notes work; packaging
-> (.deb/AppImage) and first-run onboarding come next.
+> **v0.1 beta.** Tested on Debian 12 (GNOME, Wayland). Supported package managers: apt, dnf,
+> pacman, zypper. License: Apache-2.0.
 
 ![Hark home](docs/screenshots/home.png)
 
 ## Install
 
 ```bash
-# 1. System packages + keyboard/uinput permissions + Python venv (asks for sudo)
-bash scripts/setup-linux.sh          # add --dry-run to preview every command
-
-# 2. Log out and back in (so the 'input' group membership applies)
-
-# 3. Check everything is ready
-.venv/bin/hark doctor
-
-# 4. Optional: local LLM cleanup of transcripts
-bash scripts/install-ollama.sh       # pulls qwen2.5:3b; --model qwen2.5:1.5b for speed
+curl -fsSL https://raw.githubusercontent.com/Sravan1011/Hark.ai/main/install.sh | bash
 ```
 
-Supported package managers: apt, dnf, pacman, zypper. On other distros, install
-PortAudio, wl-clipboard, xclip and xdotool yourself, then run
-`bash scripts/setup-linux.sh --skip-packages`.
+Run it as your normal user; it asks for your password only for the system parts. It
+installs PortAudio and clipboard tools, sets up the keyboard permissions below, installs Hark
+into `~/.local/share/hark/venv`, adds the `hark` command and an app-menu entry, and
+downloads the default speech model (~670 MB). Log out and back in once, then open Hark from
+your app menu or run `hark app`.
+
+Options go after `bash -s --`: `--no-model`, `--no-system` (no sudo), `--version v0.1.0`,
+`--uninstall` (keeps your data; add `--purge` to delete it).
+
+### From source (development)
+
+```bash
+git clone https://github.com/Sravan1011/Hark.ai && cd Hark.ai
+bash scripts/setup-linux.sh          # packages + permissions + .venv; --dry-run to preview
+.venv/bin/hark doctor                # after logging out and back in
+```
 
 ### Why the permissions?
 

@@ -1,0 +1,42 @@
+name: Release
+
+# Push a tag like v0.1.0 (matching hark.__version__) to publish a GitHub Release with the
+# wheel, the source archive and the install scripts.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the tag matches the package version
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/hark/__init__.py)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - name: Build
+        run: pip install build && python -m build
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v tag="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[?" tag "\\]?" {found=1; next}
+            found && /^## / {exit}
+            found {print}' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* install.sh scripts/setup-linux.sh \
+            --title "Hark $GITHUB_REF_NAME" --notes-file notes.md
